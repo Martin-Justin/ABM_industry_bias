@@ -1,0 +1,14 @@
+# Virtual Environments
+.venv/
+__pycache__/
+
+# IDE/Editor
+.vscode/
+
+# Data and Results
+results/
+*.csv
+*.png
+
+# Explicitly excluded by user
+model_description.md
