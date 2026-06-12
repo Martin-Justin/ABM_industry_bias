@@ -296,7 +296,7 @@ def evaluation(drugs, style, criterion, round):
         # 3. Calculate the evaluation score
         if style in ["down_weighing_neutral"]:
             # --- FIXED WEIGHTED AVERAGE ---
-            w = 0.5  # The weight assigned to industry studies
+            w = 0.9  # The weight assigned to industry studies
 
             total_pub_weight = len(drug["pub_studies_collected"])
             total_ind_weight = len(drug["ind_studies_collected"]) * w

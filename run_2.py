@@ -33,15 +33,15 @@ if __name__ == "__main__":
     placebo_site = 0.48
     placebo_site2 = 0.3
     inquiry_pub, inquiry_ind = "softmax", "softmax"
-    agents = (1, 3)
+    agents = (5, 5)
     
     # 1. Build the complete list of tasks
-    for style in ["down_weighing_neutral", "normal", "ignore", "adaptive_adjustment"]:
-        for site_ind in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]:
-            for i in range(5000): # Change to 5000 for final paper run
+    for style in ["down_weighing_neutral"]:
+        for bias in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]:
+            for i in range(2000): # Change to 5000 for final paper run
                 args = ((BiasedPublicAgent, agents[0]), (AltIndustry, agents[1]),
-                        bandits2, i, 0.5, placebo_site2, inquiry_pub, inquiry_ind, 
-                        style, 10000, 10000, (0, 0), (0, site_ind), 0.01, 10000, 10, 10, 1)
+                        bandits1, i, 0.5, placebo_site, inquiry_pub, inquiry_ind, 
+                        style, 200, 200, (0, 0), (0, bias), 0.01, 200, 10, 100, 1)
                 args_list.append(args)
     
     # 2. Execute all tasks in a single Pool (Much faster)
@@ -54,6 +54,6 @@ if __name__ == "__main__":
     
     # Ensure the results directory exists
     os.makedirs("results", exist_ok=True)
-    results_drug_approval_test.to_csv("G:/My Drive/simulation results/industry funding bias/final/hard_indselect.csv", index=False)
+    results_drug_approval_test.to_csv("G:/My Drive/simulation results/industry funding bias/final/highweight_indselect.csv", index=False)
     # results_drug_approval_test.to_csv("test3.csv", index=False)
     print("Done!")
