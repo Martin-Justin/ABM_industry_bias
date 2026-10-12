@@ -1,5 +1,10 @@
+# Dependencies for the industry-bias ABM.
+# Last verified on Python 3.14 with: joblib 1.5.3, numpy 2.4.4, scipy 1.18.0,
+# pandas 3.0.2, tqdm 4.67.3, matplotlib 3.10.9.
+
 joblib
 numpy
+scipy
 pandas
 tqdm
 matplotlib

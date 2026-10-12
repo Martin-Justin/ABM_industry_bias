@@ -8,14 +8,16 @@ import math
 # import pickle
 import joblib
 import numpy as np
+from scipy import stats
 
 
 class BayesAgent:
-    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i):
+    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds):
         self.id = i
         self.studies = study_size
         self.inquiry = inquiry_norm
         self.last_tested = None
+        self.total_rounds = total_rounds
 
     def choose_bandit(self, bandits, round, agents, weight):
         if self.inquiry == "softmax":
@@ -29,8 +31,9 @@ class BayesAgent:
                 # We create a list of just the scores for vectorization
                 raw_scores = np.array([utility(b) for b in bandits])
 
-                ### for linear:
-                temp = max(0, (1 - 0.02 * round))
+                ### for linear: temperature falls to 0 at the half-way point of the run,
+                ### so agents choose by argmax over the whole second half whatever the run length
+                temp = max(0, (1 - round / (self.total_rounds / 2)))
                 if temp > 0:
                     shifted_scores = raw_scores - np.max(raw_scores)
                     exp_weights = np.exp(shifted_scores / temp)
@@ -63,7 +66,7 @@ class BayesAgent:
                 raw_scores = np.array([utility(b) for b in bandits])
 
                 ### for linear:
-                # temp = max(0, (1 - 0.02 * round))
+                # temp = max(0, (1 - round / (self.total_rounds / 2)))
                 temp = 0.2
                 if temp > 0:
                     shifted_scores = raw_scores - np.max(raw_scores)
@@ -144,8 +147,8 @@ class BayesAgent:
 
 
 class IndustryAgent(BayesAgent):
-    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i):
-        super().__init__(study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i)
+    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds):
+        super().__init__(study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds)
         self.pub_bias = pub_bias
         self.site_bias = site_select_bias
         self.favorite = None
@@ -178,8 +181,8 @@ class IndustryAgent(BayesAgent):
 
 class BiasedPublicAgent(BayesAgent):
     ### Public agents with bias!
-    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i):
-        super().__init__(study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i)
+    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds):
+        super().__init__(study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds)
         self.site_bias = site_select_bias
         self.pub_bias = pub_bias
 
@@ -208,8 +211,8 @@ class BiasedPublicAgent(BayesAgent):
                 bandit["pub_studies"].append(log_OR)
 
 class AltIndustry(BayesAgent):
-    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i):
-        super().__init__(study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i)
+    def __init__(self, study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds):
+        super().__init__(study_size, inquiry_norm, pub_bias, site_select_bias, bandits, i, total_rounds)
         self.pub_bias = pub_bias
         self.site_bias = site_select_bias
         self.favorite = bandits[1]
@@ -244,29 +247,7 @@ class AltIndustry(BayesAgent):
             #     bandit["industry_studies"].append(log_OR)
 
 
-def evaluation(drugs, style, criterion, round):
-#     for drug in drugs:
-#         drug["studies"].extend(drug["pub_studies"])
-#         drug["pub_studies_collected"].extend(drug["pub_studies"])
-#         drug["nr_studies"] += len(drug["pub_studies"])
-#         drug["pub_studies"] = list()
-#
-#         drug["ind_studies_collected"].extend(drug["industry_studies"])
-#         if drug["industry_studies"] and style != "ignore":
-#             for study in drug["industry_studies"]:
-#                 new_value = discounting(study, drug, style, round)
-#                 drug["studies"].append(new_value)
-#             drug["industry_studies"] = list()
-#         else:
-#             drug["industry_studies"] = list()
-#
-#         if drug["studies"]:
-#             drug["evaluation"] = sum(drug["studies"]) / len(drug["studies"])
-#
-#         if round % 20 == 0:
-#             criterion_pass = drug["evaluation"] > criterion
-#             drug["approved"] = True if not drug["approved"] and criterion_pass else drug["approved"]
-#             drug["approved"] = False if drug["approved"] and not criterion_pass else drug["approved"]
+def evaluation(drugs, style, criterion, round, ind_weight=0.5, min_studies=5):
 
     for drug in drugs:
         # 1. Update the historical collections with the new studies from this round
@@ -278,17 +259,18 @@ def evaluation(drugs, style, criterion, round):
         drug["nr_studies"] += len(drug["pub_studies"])
         drug["pub_studies"] = list()
         if drug["industry_studies"] and style != "ignore":
+            drug["ind_studies_collected"].extend(drug["industry_studies"])
             for study in drug["industry_studies"]:
                 # Only use the discounting function for adaptive/Solomon adjustments
                 if style not in ["down_weighing_neutral"]:
-                    new_value = discounting(study, drug, style, round)
+                    new_value = discounting(study, drug, style, round, min_studies)
                     drug["studies"].append(new_value)
                 else:
                     # For down-weighting, keep the unadjusted value in the general list
                     # (Though we won't use this list to calculate the evaluation below)
                     drug["studies"].append(study)
 
-            drug["ind_studies_collected"].extend(drug["industry_studies"])
+            # drug["ind_studies_collected"].extend(drug["industry_studies"])
             drug["industry_studies"] = list()
         else:
             drug["industry_studies"] = list()
@@ -296,7 +278,7 @@ def evaluation(drugs, style, criterion, round):
         # 3. Calculate the evaluation score
         if style in ["down_weighing_neutral"]:
             # --- FIXED WEIGHTED AVERAGE ---
-            w = 0.9  # The weight assigned to industry studies
+            w = ind_weight  # The weight assigned to industry studies
 
             total_pub_weight = len(drug["pub_studies_collected"])
             total_ind_weight = len(drug["ind_studies_collected"]) * w
@@ -314,7 +296,7 @@ def evaluation(drugs, style, criterion, round):
             if drug["studies"]:
                 drug["evaluation"] = sum(drug["studies"]) / len(drug["studies"])
 
-def discounting(study, drug, style, round):
+def discounting(study, drug, style, round, min_studies=5):
 #     if style == "down_weighing":
 #         if study > 0:
 #             return study * 0.5
@@ -326,10 +308,10 @@ def discounting(study, drug, style, round):
 
     if style == "adaptive_adjustment":
         if round > 0:
-            industry_eval = sum(drug["ind_studies_collected"]) / len(drug["ind_studies_collected"]) if drug["ind_studies_collected"] else 0
-            public_eval = sum(drug["pub_studies_collected"]) / len(drug["pub_studies_collected"]) if drug["pub_studies_collected"] else 0
+            industry_eval = sum(drug["ind_studies_collected"]) / len(drug["ind_studies_collected"]) if drug["ind_studies_collected"] else None
+            public_eval = sum(drug["pub_studies_collected"]) / len(drug["pub_studies_collected"]) if drug["pub_studies_collected"] else None
 
-            if industry_eval and public_eval:
+            if industry_eval is not None and public_eval is not None:
                 factor = industry_eval - public_eval
             else:
                 factor = 0
@@ -337,6 +319,34 @@ def discounting(study, drug, style, round):
 
         else:
             return study
+
+    elif style == "adaptive_adjustment_significance":
+        ALPHA = 0.05        # significance level agents demand before correcting
+
+        if round > 0:
+            ind = drug["ind_studies_collected"]
+            pub = drug["pub_studies_collected"]
+
+            # An agent cannot judge industry bias before it has seen enough of
+            # both kinds of study to compare them at all. Welch's t-test needs at
+            # least two observations per group; min_studies may demand more.
+            if len(ind) < min_studies or len(pub) < min_studies:
+                return study
+
+            # Welch's t-test on the study-level results.
+            _, p_value = stats.ttest_ind(ind, pub, equal_var=False)
+
+            # Correct only for a difference the agent could actually detect.
+            if p_value < ALPHA:
+                factor = sum(ind) / len(ind) - sum(pub) / len(pub)
+                return study - factor
+
+            else:
+                return study
+        
+        else:
+            return study
+
 
     elif style == "Solomon":
         if len(drug["ind_studies_collected"]) > 5 and len(drug["pub_studies_collected"]) > 5:
@@ -418,7 +428,16 @@ def industry_fav(drugs):
 
 def run(pub_agents, ind_agents, bandits, run_id, placebo, placebo_site, inquiry_pub="myopic", inquiry_ind="myopic", style="normal",
         study_size_public=500, study_size_industry=100, pub_bias=(0,0), site_select_bias=(0,0),
-        criterion=0, pulls=1000, weight=0, rounds=50, data_collection=1):
+        criterion=0, pulls=1000, weight=0, rounds=50, data_collection=1,
+        ind_weight=0.5, min_studies=5):
+    # ind_weight: weight given to industry studies by the "down_weighing_neutral"
+    #   Evaluator; public studies always count 1. Not to be confused with `weight`,
+    #   which scales a hypothesis's evaluation in the agents' utility function.
+    # min_studies: studies required per funding source, per hypothesis, before
+    #   "adaptive_adjustment_significance" will test for and correct a bias factor.
+    if min_studies < 2:
+        raise ValueError("min_studies must be at least 2: Welch's t-test needs two observations per group")
+
     with joblib.parallel_backend('sequential'):
         timer = 0
         convergence = 0
@@ -447,19 +466,19 @@ def run(pub_agents, ind_agents, bandits, run_id, placebo, placebo_site, inquiry_
         for pub in range(pub_agents[1]):
             name = f"pub_{id}"
             # agents.append(BayesAgent(study_size_public, inquiry_pub, id))
-            agents.append(pub_agents[0](study_size_public, inquiry_pub, pub_bias[0], site_select_bias[0], drugs, name))
+            agents.append(pub_agents[0](study_size_public, inquiry_pub, pub_bias[0], site_select_bias[0], drugs, name, rounds))
             id += 1
 
         for ind in range(ind_agents[1]):
             name = f"ind_{id}"
-            agents.append(ind_agents[0](study_size_industry, inquiry_ind, pub_bias[1], site_select_bias[1], drugs, name))
+            agents.append(ind_agents[0](study_size_industry, inquiry_ind, pub_bias[1], site_select_bias[1], drugs, name, rounds))
             id += 1
 
         for i in range(1, rounds+1):
             for agent in agents:
                 agent.test(drugs, placebo, placebo_site, pulls, i, agents, success, weight)
             # Add timer if necessary
-            evaluation(drugs, style, criterion, i)
+            evaluation(drugs, style, criterion, i, ind_weight, min_studies)
 
 
             row = {"run_id": run_id,
@@ -473,17 +492,20 @@ def run(pub_agents, ind_agents, bandits, run_id, placebo, placebo_site, inquiry_
                    "pub_bias": pub_bias,
                    "site_bias": site_select_bias,
                    "style": style,
+                   "ind_weight": ind_weight,
+                   "min_studies": min_studies,
                    "inquiry_pub": inquiry_pub,
                    "inquiry_ind": inquiry_ind,
                    "weight": weight,
                    "criterion": criterion,
                    "industry_fav": industry_fav(drugs),
-                   "which_approved": which_approved(drugs),
-                   "convergence_approval": compute_convergence_approval(drugs, placebo),
-                   "success_testing_comparison": success_v_testing_eval(drugs),
+                #   "which_approved": which_approved(drugs),
+                #   "convergence_approval": compute_convergence_approval(drugs, placebo),
+                #   "success_testing_comparison": success_v_testing_eval(drugs),
                    "active_hypotheses": active_hypotheses(agents),
-                   "success": success[0],
-                   "failure": success[1],}
+                #   "success": success[0],
+                #   "failure": success[1],}
+            }
 
             if i == 1 or (i % data_collection == 0):
                 rows.append(row)
